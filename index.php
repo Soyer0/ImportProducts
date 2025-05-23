@@ -1,7 +1,6 @@
 <?php
 require __DIR__ . '/config/config.php';
 require __DIR__ . '/controllers/ExcelController.php';
-require __DIR__ . '/vendor/autoload.php';
 
 session_start();
 
@@ -25,10 +24,14 @@ switch ($action) {
     case 'showUploadForm':
         $controller->showUploadForm();
         break;
-
-    case 'handleForm':
+    case 'handleImportingProductsCartForm':
+        $controller->handleImportingProductsCartForm();
+        break;
+    case 'handleImportingUserArticlesForm':
+        $controller->handleImportingUserArticlesForm();
+        break;
     default:
-        $controller->handleForm();
+        echo "404 Not Found";
         break;
 }
 

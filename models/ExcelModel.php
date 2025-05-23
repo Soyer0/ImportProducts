@@ -1,23 +1,16 @@
 <?php
 require_once 'Model.php';
-use PhpOffice\PhpSpreadsheet\IOFactory;
+require(__DIR__ .  '/../lib/SpreadsheetReader/SpreadsheetReader.php');
 class ExcelModel extends Model {
-    public function readExcel($filePath): void
+    private function readExcelForProductsCart($filePath, $originalName): array
     {
-        $spreadsheet = IOFactory::load($filePath);
-        $sheet = $spreadsheet->getActiveSheet();
+        $reader = new SpreadsheetReader($filePath, $originalName);
 
         $data = [];
         $isFirstRow = true;
 
-        foreach ($sheet->getRowIterator() as $row) {
-            $cellIterator = $row->getCellIterator();
-            $cellIterator->setIterateOnlyExistingCells(false);
-
-            $rowData = [];
-            foreach ($cellIterator as $cell) {
-                $rowData[] = trim((string) $cell->getValue());
-            }
+        foreach ($reader as $rowData) {
+            $rowData = array_map(fn($val) => trim((string) $val), $rowData);
 
             $nonEmptyValues = array_filter($rowData, fn($val) => $val !== '');
             if (count($nonEmptyValues) === 0) {
@@ -27,6 +20,7 @@ class ExcelModel extends Model {
             if ($isFirstRow) {
                 $isFirstRow = false;
                 $headers = array_map('strtolower', $rowData);
+
                 if (
                     in_array('mpn', $headers) &&
                     in_array('sku', $headers) &&
@@ -48,11 +42,53 @@ class ExcelModel extends Model {
                 ];
             }
         }
-        $this->processData($data);
+
+        return $data;
     }
 
-    public function processData($data): void
+    private function readExcelForUserArticles($filePath, $originalName): array
     {
+        $reader = new SpreadsheetReader($filePath, $originalName);
+        $data = [];
+        $isFirstRow = true;
+
+        foreach ($reader as $rowData) {
+            $rowData = array_map(fn($val) => trim((string) $val), $rowData);
+
+            $nonEmptyValues = array_filter($rowData, fn($val) => $val !== '');
+            if (count($nonEmptyValues) === 0) {
+                continue;
+            }
+
+            if ($isFirstRow) {
+                $isFirstRow = false;
+                $headers = array_map('strtolower', $rowData);
+
+                if (
+                    in_array('mpn', $headers) &&
+                    in_array('article', $headers) &&
+                    in_array('sku', $headers)
+                ) {
+                    continue;
+                }
+            }
+
+            if (
+                (isset($rowData[0]) && $rowData[0] !== '') ||
+                (isset($rowData[1]) && $rowData[1] !== '')
+            ) {
+                $data[] = [
+                    'mpn'    => $rowData[0] ?? '',
+                    'article'    => $rowData[1] ?? '',
+                ];
+            }
+        }
+        return $data;
+    }
+
+    public function importProductsCart($filePath, $originalName): void
+    {
+        $data = $this->readExcelForProductsCart($filePath, $originalName);
         $mpns = [];
         $skus = [];
         foreach ($data as $row) {
@@ -79,6 +115,9 @@ class ExcelModel extends Model {
             }
             if ($product) {
                 $this->db->insertRow('s_cart_products', [
+                    'user' => 1,
+                    'active' => 1,
+                    'quantity_wont' => 1,
                     'product_alias' => $product->wl_alias,
                     'product_id' => $product->id,
                     'price' => $product->price,
@@ -86,6 +125,51 @@ class ExcelModel extends Model {
                     'quantity' => $item['amount'],
                     'date' => time(),
                 ]);
+            }
+        }
+    }
+
+    public function importUserArticles($filePath, $originalName): void
+    {
+        $data = $this->readExcelForUserArticles($filePath, $originalName);
+
+        $filtered_data = array_filter($data, function ($row) {
+            return !empty($row['mpn']) && !empty($row['article']);
+        });
+
+        $mpns = array_column($filtered_data, 'mpn');
+        $articles = array_column($filtered_data, 'article');
+
+        $products_id = $this->db->select('s_shopshowcase_products', 'id, mpn', [
+            'mpn' => $mpns
+        ])->get('arrayIndexed:mpn');
+
+        $products_articles = $this->db->select('b2b_company_product_articles', 'article, product_id', [
+            'article' => $articles
+        ])->get('arrayIndexed:article');
+
+        foreach ($filtered_data as $item) {
+            if(isset($products_id[$item['mpn']])){
+                if(isset($products_articles[$item['article']]))
+                {
+                    if($products_articles[$item['article']]->product_id !== $products_id[$item['mpn']]->id)
+                    {
+                        $this->db->updateRow('b2b_company_product_articles', [
+                            'product_id' => $products_id[$item['mpn']]->id,
+                            'date_update' => time(),
+                        ], $item['article'], 'article');
+                    }
+                }
+                else{
+                    $date = time();
+                    $this->db->insertRow('b2b_company_product_articles', [
+                        'article' => $item['article'],
+                        'company_id' => 0,
+                        'product_id' => $products_id[$item['mpn']]->id,
+                        'date_add' => $date,
+                        'date_update' => $date,
+                    ]);
+                }
             }
         }
     }

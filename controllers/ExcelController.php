@@ -5,7 +5,6 @@ require_once(__DIR__ . '/../lib/data.php');
 class ExcelController
 {
     private ExcelModel $excelModel;
-    private Data $data;
 
     public function __construct()
     {
@@ -19,13 +18,15 @@ class ExcelController
         echo $this->render('layout', ['content' => $content]);
     }
 
-    public function handleForm(): void
+    public function handleImportingProductsCartForm(): void
     {
         header('Content-Type: application/json');
 
         if (isset($_FILES['excel_file']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
             $filePath = $_FILES['excel_file']['tmp_name'];
-            $this->excelModel->readExcel($filePath);
+            $originalName = $_FILES['excel_file']['name'];
+
+            $this->excelModel->importProductsCart($filePath, $originalName);
             echo json_encode(['success' => true]);
 
         } else {
@@ -33,7 +34,23 @@ class ExcelController
         }
     }
 
-    private function render($view, $data = []): bool|string
+    public function handleImportingUserArticlesForm()
+    {
+        header('Content-Type: application/json');
+
+        if (isset($_FILES['excel_file']) && $_FILES['excel_file']['error'] === UPLOAD_ERR_OK) {
+            $filePath = $_FILES['excel_file']['tmp_name'];
+            $originalName = $_FILES['excel_file']['name'];
+
+            $this->excelModel->importUserArticles($filePath, $originalName);
+            echo json_encode(['success' => true]);
+
+        } else {
+            echo json_encode(['error' => 'Upload failed']);
+        }
+    }
+
+    private function render($view, $data = [])
     {
         extract($data);
         ob_start();
